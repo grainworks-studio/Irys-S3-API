@@ -1,0 +1,617 @@
+openapi: 3.0.3
+info:
+  title: S3-Irys API
+  version: 1.0.0
+  description: |
+    S3-compatible REST API facade for Irys decentralized storage
+    
+    ## Authentication
+    All endpoints (except health checks) require an API key in the `x-api-key` header.
+    
+    ## Examples
+    - **API Key**: `your_api_key_here` (from your .env file)
+    - **Base URL**: `http://localhost:3000`
+    
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: API key for authentication (set in .env as API_KEY)
+  schemas:
+    BucketList:
+      type: object
+      properties:
+        Owner:
+          type: object
+          properties:
+            DisplayName:
+              type: string
+              example: "irys-user"
+            ID:
+              type: string
+              example: "irys-user"
+        Buckets:
+          type: array
+          items:
+            type: object
+            properties:
+              Name:
+                type: string
+                example: "my-bucket"
+              CreationDate:
+                type: string
+                format: date-time
+                example: "2025-09-17T10:30:00.000Z"
+    ObjectList:
+      type: object
+      properties:
+        Name:
+          type: string
+          example: "my-bucket"
+        Prefix:
+          type: string
+          example: "documents/"
+        Marker:
+          type: string
+          example: ""
+        MaxKeys:
+          type: integer
+          example: 1000
+        IsTruncated:
+          type: boolean
+          example: false
+        Contents:
+          type: array
+          items:
+            type: object
+            properties:
+              Key:
+                type: string
+                example: "documents/file.pdf"
+              LastModified:
+                type: string
+                format: date-time
+                example: "2025-09-17T10:30:00.000Z"
+              ETag:
+                type: string
+                example: "d41d8cd98f00b204e9800998ecf8427e"
+              Size:
+                type: integer
+                example: 1024
+              StorageClass:
+                type: string
+                example: "STANDARD"
+    UploadResponse:
+      type: object
+      properties:
+        ETag:
+          type: string
+          example: "d41d8cd98f00b204e9800998ecf8427e"
+        Location:
+          type: string
+          example: "https://gateway.irys.xyz/abc123"
+        Bucket:
+          type: string
+          example: "my-bucket"
+        Key:
+          type: string
+          example: "documents/file.pdf"
+        IrysTransactionId:
+          type: string
+          example: "abc123xyz789"
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "NoSuchKey"
+        message:
+          type: string
+          example: "The specified key does not exist"
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-09-17T10:30:00.000Z"
+        service:
+          type: string
+          example: "S3-Irys API"
+paths:
+  /:
+    get:
+      summary: List all buckets
+      description: |
+        Returns a list of all buckets accessible to the authenticated user.
+        
+        **Example cURL:**
+        ```bash
+        curl -X GET "http://localhost:3000/" \
+          -H "x-api-key: your_api_key_here"
+        ```
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of buckets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BucketList'
+              example:
+                Owner:
+                  DisplayName: "irys-user"
+                  ID: "irys-user"
+                Buckets:
+                  - Name: "documents"
+                    CreationDate: "2025-09-17T10:30:00.000Z"
+                  - Name: "images"
+                    CreationDate: "2025-09-17T11:15:00.000Z"
+        '401':
+          description: Unauthorized - Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  
+  /{bucket}:
+    get:
+      summary: List objects in bucket
+      description: |
+        Returns a list of objects in the specified bucket. Supports pagination and filtering.
+        
+        **Example cURL:**
+        ```bash
+        # List all objects
+        curl -X GET "http://localhost:3000/my-bucket" \
+          -H "x-api-key: your_api_key_here"
+        
+        # List with prefix filter
+        curl -X GET "http://localhost:3000/my-bucket?prefix=documents/" \
+          -H "x-api-key: your_api_key_here"
+        
+        # List with pagination
+        curl -X GET "http://localhost:3000/my-bucket?max-keys=10&marker=last-key" \
+          -H "x-api-key: your_api_key_here"
+        ```
+      parameters:
+        - in: path
+          name: bucket
+          required: true
+          schema:
+            type: string
+          example: "my-bucket"
+          description: Name of the bucket
+        - in: query
+          name: prefix
+          schema:
+            type: string
+          example: "documents/"
+          description: Limits response to keys that begin with the specified prefix
+        - in: query
+          name: marker
+          schema:
+            type: string
+          example: "documents/file1.pdf"
+          description: Specifies the key to start with when listing objects
+        - in: query
+          name: max-keys
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
+          example: 100
+          description: Sets the maximum number of keys returned in the response
+        - in: query
+          name: delimiter
+          schema:
+            type: string
+          example: "/"
+          description: A delimiter is a character you use to group keys
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: List of objects in the bucket
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObjectList'
+              example:
+                Name: "my-bucket"
+                Prefix: "documents/"
+                Marker: ""
+                MaxKeys: 1000
+                IsTruncated: false
+                Contents:
+                  - Key: "documents/file1.pdf"
+                    LastModified: "2025-09-17T10:30:00.000Z"
+                    ETag: "d41d8cd98f00b204e9800998ecf8427e"
+                    Size: 2048
+                    StorageClass: "STANDARD"
+                  - Key: "documents/file2.txt"
+                    LastModified: "2025-09-17T11:15:00.000Z"
+                    ETag: "e258d4ab9c7e9c7c7e9c7e9c7e9c7e9c"
+                    Size: 512
+                    StorageClass: "STANDARD"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  
+  /{bucket}/{key}:
+    parameters:
+      - in: path
+        name: bucket
+        required: true
+        schema:
+          type: string
+        example: "my-bucket"
+        description: Name of the bucket
+      - in: path
+        name: key
+        required: true
+        schema:
+          type: string
+        example: "documents/file.pdf"
+        description: Object key (supports nested paths with slashes)
+    
+    put:
+      summary: Upload object
+      description: |
+        Uploads a file to the specified bucket and key. Supports both raw binary uploads and multipart form uploads.
+        
+        **Example cURL (file upload):**
+        ```bash
+        # Upload a file
+        curl -X PUT "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here" \
+          -H "Content-Type: application/pdf" \
+          --data-binary @/path/to/file.pdf
+        
+        # Upload with metadata
+        curl -X PUT "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here" \
+          -H "Content-Type: application/pdf" \
+          -H "x-amz-meta-author: John Doe" \
+          -H "x-amz-meta-project: MyProject" \
+          --data-binary @/path/to/file.pdf
+        
+        # Upload text content
+        curl -X PUT "http://localhost:3000/my-bucket/notes.txt" \
+          -H "x-api-key: your_api_key_here" \
+          -H "Content-Type: text/plain" \
+          -d "Hello, world!"
+        ```
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+            example: "[Binary file content]"
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+            example:
+              file: "[Selected file]"
+          text/plain:
+            schema:
+              type: string
+            example: "Hello, world!"
+          application/json:
+            schema:
+              type: object
+            example:
+              message: "Hello from JSON"
+              data: [1, 2, 3]
+      responses:
+        '200':
+          description: Object uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+              example:
+                ETag: "d41d8cd98f00b204e9800998ecf8427e"
+                Location: "https://gateway.irys.xyz/abc123xyz789"
+                Bucket: "my-bucket"
+                Key: "documents/file.pdf"
+                IrysTransactionId: "abc123xyz789"
+        '400':
+          description: Bad request - Missing body or invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
+          description: File too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    get:
+      summary: Download object
+      description: |
+        Downloads the object from the specified bucket and key.
+        
+        **Example cURL:**
+        ```bash
+        # Download a file
+        curl -X GET "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here" \
+          -o downloaded-file.pdf
+        
+        # Get file with headers
+        curl -X GET "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here" \
+          -I
+        ```
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Object content
+          headers:
+            Content-Type:
+              schema:
+                type: string
+              example: "application/pdf"
+            Content-Length:
+              schema:
+                type: integer
+              example: 2048
+            ETag:
+              schema:
+                type: string
+              example: "d41d8cd98f00b204e9800998ecf8427e"
+            Last-Modified:
+              schema:
+                type: string
+              example: "Tue, 17 Sep 2025 10:30:00 GMT"
+            x-irys-transaction-id:
+              schema:
+                type: string
+              example: "abc123xyz789"
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Object not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "NoSuchKey"
+                message: "The specified key does not exist"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    delete:
+      summary: Delete object mapping
+      description: |
+        Soft deletes the object mapping (Irys data is immutable, so this only removes the local mapping).
+        
+        **Example cURL:**
+        ```bash
+        curl -X DELETE "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here"
+        ```
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '204':
+          description: Object deleted successfully (or didn't exist)
+          headers:
+            x-irys-transaction-id:
+              schema:
+                type: string
+              example: "abc123xyz789"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    head:
+      summary: Get object metadata
+      description: |
+        Returns metadata for the object without returning the object content.
+        
+        **Example cURL:**
+        ```bash
+        curl -X HEAD "http://localhost:3000/my-bucket/documents/file.pdf" \
+          -H "x-api-key: your_api_key_here"
+        ```
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Object metadata in headers
+          headers:
+            Content-Type:
+              schema:
+                type: string
+              example: "application/pdf"
+            Content-Length:
+              schema:
+                type: integer
+              example: 2048
+            ETag:
+              schema:
+                type: string
+              example: "d41d8cd98f00b204e9800998ecf8427e"
+            Last-Modified:
+              schema:
+                type: string
+              example: "Tue, 17 Sep 2025 10:30:00 GMT"
+            x-irys-transaction-id:
+              schema:
+                type: string
+              example: "abc123xyz789"
+            x-amz-meta-author:
+              schema:
+                type: string
+              example: "John Doe"
+              description: Custom metadata (if set during upload)
+        '404':
+          description: Object not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /health:
+    get:
+      summary: Health check
+      description: |
+        Basic health check endpoint that doesn't require authentication.
+        
+        **Example cURL:**
+        ```bash
+        curl -X GET "http://localhost:3000/health"
+        ```
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                timestamp: "2025-09-17T10:30:00.000Z"
+                service: "S3-Irys API"
+        '503':
+          description: Service is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  
+  /status:
+    get:
+      summary: Detailed service status
+      description: |
+        Returns detailed status including Irys connection, database stats, and system info.
+        
+        **Example cURL:**
+        ```bash
+        curl -X GET "http://localhost:3000/status"
+        ```
+      responses:
+        '200':
+          description: Detailed service status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: "S3-Irys API"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  timestamp:
+                    type: string
+                    example: "2025-09-17T10:30:00.000Z"
+                  uptime:
+                    type: number
+                    example: 3600.5
+                  irys:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                        example: true
+                      balance:
+                        type: string
+                        example: "1000000000000000000"
+                  database:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                        example: true
+                      stats:
+                        type: object
+                        properties:
+                          objects:
+                            type: integer
+                            example: 42
+                          buckets:
+                            type: integer
+                            example: 3
+                  memory:
+                    type: object
+                  environment:
+                    type: string
+                    example: "development"
+        '503':
+          description: Service has issues
+  
+  /metrics:
+    get:
+      summary: Prometheus-style metrics
+      description: |
+        Returns metrics in Prometheus format for monitoring systems.
+        
+        **Example cURL:**
+        ```bash
+        curl -X GET "http://localhost:3000/metrics"
+        ```
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP s3_irys_objects_total Total number of objects stored
+                # TYPE s3_irys_objects_total counter
+                s3_irys_objects_total 42
+                
+                # HELP s3_irys_buckets_total Total number of buckets
+                # TYPE s3_irys_buckets_total counter
+                s3_irys_buckets_total 3
